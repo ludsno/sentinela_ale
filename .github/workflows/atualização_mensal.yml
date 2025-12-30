@@ -1,0 +1,30 @@
+name: Atualização Mensal - Sentinela
+
+on:
+  schedule:
+    # Dia 10 de todo mês às 03:00 UTC (meia-noite no Brasil)
+    - cron: '0 3 10 * *'
+  workflow_dispatch: # permite rodar manualmente
+
+jobs:
+  ingestor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: |
+          pip install -r requirements.txt
+
+      - name: Rodar Ingestor Mensal
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python ingestor_turbo.py

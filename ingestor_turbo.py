@@ -1,0 +1,215 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import time
+import urllib3
+from io import StringIO
+from sqlalchemy.exc import IntegrityError
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from models import Session, Funcionario, init_db
+
+# Desativa avisos de SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+BASE_URL = "https://transparencia.al.al.leg.br"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+# Cria uma sessão global para reaproveitar conexões (muito mais rápido)
+session_http = requests.Session()
+session_http.headers.update(HEADERS)
+
+
+def get_links_mes(ano, mes):
+    """Busca a lista de nomes (Processo Sequencial Obrigatório)"""
+    codigo_folha = f"{ano}{mes:02d}%7CEM"
+    url = f"{BASE_URL}/?arg=&folha={codigo_folha}"
+
+    print(f"Baixando lista mestra: {mes}/{ano}...")
+    try:
+        response = session_http.get(url, verify=False, timeout=20)
+        if "Nenhum resultado" in response.text:
+            print(f"\tSem dados para {mes}/{ano}.")
+            return []
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        funcionarios = []
+
+        for link in soup.find_all("a", href=True):
+            if "detalhar.php" in link["href"] and len(link.text.strip()) > 3:
+                full_url = (
+                    link["href"]
+                    if link["href"].startswith("http")
+                    else f'{BASE_URL}/{link["href"]}'
+                )
+                funcionarios.append({"nome": link.text.strip(), "url": full_url})
+
+        return funcionarios
+    except Exception as e:
+        print(f"\tErro de conexão na lista: {e}")
+        return []
+
+
+def processar_funcionario_individual(func_info):
+    """
+    Função que será rodada em parelelo.
+    Ela NÃO salva no banco, apenas baixa e retorna os dados processados.
+    """
+    try:
+        response = session_http.get(func_info["url"], verify=False, timeout=15)
+        # Check rápido de erro
+        if response.status_code != 200:
+            return None
+
+        html_io = StringIO(response.text)
+        dfs = pd.read_html(html_io, match="Rendimento", decimal=",", thousands=".")
+
+        if dfs:
+            df = dfs[0]
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(-1)
+            df = df.loc[:, ~df.columns.duplicated()]
+
+            # --- Lógica de Limpeza (Corrigida) ---
+            def limpar_valor(coluna):
+                if coluna not in df.columns:
+                    return 0.0
+                val = df[coluna].iloc[0]
+
+                # Se o Pandas já converteu para float/int, retorna direto
+                if isinstance(val, (int, float)):
+                    return float(val)
+
+                # Se for string suja
+                val_str = str(val).strip()
+                val_str = val_str.replace("R$", "").strip()
+                val_str = val_str.replace(".", "")
+                val_str = val_str.replace(",", ".")
+                return float(val_str) if val_str else 0.0
+
+            # Retorna um dicionário com os dados prontos
+            return {
+                "nome": func_info["nome"],
+                "cargo": (
+                    str(df["Cargo"].iloc[0]).upper()
+                    if "Cargo" in df.columns
+                    else "DESCONHECIDO"
+                ),
+                "rendimento_liquido": limpar_valor("Rendimento Líquido"),
+                "total_creditos": limpar_valor("Total de Créditos"),
+                "total_debitos": limpar_valor("Total de Débitos"),
+                "url_origem": func_info["url"],
+            }
+
+    except Exception:
+        # Erros individuais são ignorados para não parar o fluxo
+        pass
+
+    return None
+
+
+def ingestor_turbo(ano_inicio, ano_fim):
+    db_session = Session()
+    total_global = 0
+
+    # Loop de Anos/Meses
+    for ano in range(ano_fim, ano_inicio - 1, -1):
+        for mes in range(12, 0, -1):
+            if ano == 2025 and mes > 11:
+                continue
+
+            # 1. Pega a lista de URLs (Isso tem que ser um por um)
+            lista_raw = get_links_mes(ano, mes)
+            if not lista_raw:
+                continue
+
+            # 2. Filtra quem já temos no banco (Cache Baseado em URL)
+            urls_existentes = (
+                db_session.query(Funcionario.url_origem)
+                .filter_by(mes_referencia=mes, ano_referencia=ano)
+                .all()
+            )
+            # Cria um conjunto (set) com as URLs que já baixamos
+            urls_set = {u[0] for u in urls_existentes}
+
+            # Só baixa se a URL ainda não estiver no banco
+            lista_para_baixar = [f for f in lista_raw if f["url"] not in urls_set]
+
+            total_mes = len(lista_raw)
+            a_baixar = len(lista_para_baixar)
+
+            if a_baixar == 0:
+                print(
+                    f"\tMês {mes}/{ano} já está completo no banco ({total_mes} registros)."
+                )
+                continue
+
+            print(
+                f"Turbinando {mes}/{ano}: Baixando {a_baixar} novos (de {total_mes})..."
+            )
+
+            # 3. O PULO DO GATO: ThreadPoolExecutor
+            # max_workers=10 significa 10 conexões simultâneas.
+            # Não coloque muito alto (ex: 50) senão o servidor te bloqueia.
+            resultados_para_salvar = []
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # Dispara as tarefas
+                future_to_func = {
+                    executor.submit(processar_funcionario_individual, f): f
+                    for f in lista_para_baixar
+                }
+
+                completos = 0
+                for future in as_completed(future_to_func):
+                    dados = future.result()
+                    completos += 1
+
+                    # Barra de progresso visual
+                    print(
+                        f"\tProcessando: {completos}/{a_baixar} ({(completos/a_baixar):.1%})",
+                        end="\r",
+                    )
+
+                    if dados:
+                        resultados_para_salvar.append(dados)
+
+            # 4. Salva tudo no banco de uma vez (Batch Insert)
+            print(f"\n\tSalvando {len(resultados_para_salvar)} registros no banco...")
+
+            for d in resultados_para_salvar:
+                try:
+                    novo = Funcionario(
+                        nome=d["nome"],
+                        cargo=d["cargo"],
+                        rendimento_liquido=d["rendimento_liquido"],
+                        total_creditos=d["total_creditos"],
+                        total_debitos=d["total_debitos"],
+                        mes_referencia=mes,
+                        ano_referencia=ano,
+                        url_origem=d["url_origem"],
+                    )
+                    db_session.add(novo)
+                except Exception:
+                    pass
+
+            try:
+                db_session.commit()
+                total_global += len(resultados_para_salvar)
+                print(f"\tMês {mes}/{ano} finalizado com sucesso!")
+            except Exception as e:
+                db_session.rollback()
+                print(f"\tErro ao salvar lote: {e}")
+
+    db_session.close()
+    print(f"\nFim Turbo. Total salvo: {total_global}")
+
+
+if __name__ == "__main__":
+    init_db()
+    # Atualiza até o mês atual automaticamente
+    from datetime import datetime
+    ano_atual = datetime.now().year
+    ingestor_turbo(2004, ano_atual)
+

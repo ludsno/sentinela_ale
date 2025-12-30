@@ -1,0 +1,10 @@
+streamlit>=1.20
+pandas
+plotly
+sqlalchemy
+psycopg2-binary
+requests
+beautifulsoup4
+lxml
+urllib3
+python-dotenv
