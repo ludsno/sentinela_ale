@@ -15,6 +15,9 @@ DB_NAME = "sentinela_alagoas.db"
 DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{DB_NAME}"
 engine = create_engine(
     DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
     connect_args=(
         {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
     ),

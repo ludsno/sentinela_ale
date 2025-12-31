@@ -8,8 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from models import Session, Funcionario, init_db
 
-# Desativa avisos de SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE_URL = "https://transparencia.al.al.leg.br"
 HEADERS = {
@@ -28,7 +26,7 @@ def get_links_mes(ano, mes):
 
     print(f"Baixando lista mestra: {mes}/{ano}...")
     try:
-        response = session_http.get(url, verify=False, timeout=20)
+        response = session_http.get(url, timeout=20)
         if "Nenhum resultado" in response.text:
             print(f"\tSem dados para {mes}/{ano}.")
             return []
@@ -57,7 +55,7 @@ def processar_funcionario_individual(func_info):
     Ela NÃO salva no banco, apenas baixa e retorna os dados processados.
     """
     try:
-        response = session_http.get(func_info["url"], verify=False, timeout=15)
+        response = session_http.get(func_info["url"], timeout=15)
         # Check rápido de erro
         if response.status_code != 200:
             return None
@@ -191,8 +189,12 @@ def ingestor_turbo(ano_inicio, ano_fim):
                         url_origem=d["url_origem"],
                     )
                     db_session.add(novo)
-                except Exception:
-                    pass
+                    db_session.commit()
+                except IntegrityError:
+                    db_session.rollback()
+                except Exception as e:
+                    db_session.rollback()
+                    print(f"\tErro ao salvar registro: {e}")
 
             try:
                 db_session.commit()
@@ -210,6 +212,6 @@ if __name__ == "__main__":
     init_db()
     # Atualiza até o mês atual automaticamente
     from datetime import datetime
-    ano_atual = datetime.now().year
-    ingestor_turbo(2004, ano_atual)
 
+    ano_atual = datetime.now().year
+    ingestor_turbo(2020, ano_atual)
