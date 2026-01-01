@@ -29,6 +29,7 @@ Este repositório é um projeto de portfólio voltado a **Engenharia de Dados** 
 ## Imagens
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/fb718d79-4b2f-4505-a932-6bdcc10e89ed" />
+
 ---
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/e6b50179-2d19-4134-b678-991dec11d177" />
 
@@ -156,5 +157,6 @@ Para funcionar em CI você precisa garantir:
 ## Licença
 
 Uso livre para fins educacionais e de portfólio. Se você pretende reutilizar em contexto público/comercial, revise o uso de dados e as regras do portal de origem.
+
 
 
