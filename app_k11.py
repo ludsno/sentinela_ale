@@ -6,9 +6,6 @@ from sqlalchemy import create_engine
 from datetime import date
 from models import engine
 
-# ==============================================================================
-# CONFIGURAÇÃO E CSS
-# ==============================================================================
 st.set_page_config(page_title="Sentinela AL 5.0", layout="wide", page_icon="🌵")
 
 st.markdown(
@@ -42,12 +39,8 @@ def exibir_disclaimer():
         </div>
         """, unsafe_allow_html=True)
 
-# ==============================================================================
-# ETL: CARREGAMENTO
-# ==============================================================================
 @st.cache_data
 def carregar_dados():
-    # engine = create_engine("sqlite:///sentinela_alagoas.db")
     
     try:
         query = "SELECT * FROM historico_folha"
@@ -55,7 +48,6 @@ def carregar_dados():
     except Exception:
         return pd.DataFrame()
 
-    # 1. Cria Data Base
     df["data_base"] = pd.to_datetime(
         df["ano_referencia"].astype(str)
         + "-"
@@ -63,7 +55,6 @@ def carregar_dados():
         + "-01"
     )
 
-    # 2. Extrai Sobrenome
     def extrair_sobrenome(nome):
         partes = str(nome).strip().upper().split()
         if not partes:

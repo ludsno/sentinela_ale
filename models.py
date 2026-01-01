@@ -16,8 +16,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{DB_NAME}"
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=5 if not DATABASE_URL.startswith("sqlite") else None,
+    max_overflow=10 if not DATABASE_URL.startswith("sqlite") else None,
     connect_args=(
         {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
     ),
@@ -41,11 +41,8 @@ class Funcionario(Base):
     ano_referencia = Column(Integer, index=True)
 
     data_coleta = Column(Date, default=date.today)
-    # A URL passa a ser obrigatória e única
     url_origem = Column(String, nullable=False, unique=True)
 
-    # REMOVEMOS a restrição antiga de nomes duplicados
-    # Agora a única restrição é não repetir a mesma URL (mesmo contracheque)
     __table_args__ = (UniqueConstraint("url_origem", name="unico_por_url"),)
 
 
