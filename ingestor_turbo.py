@@ -189,11 +189,7 @@ def ingestor_turbo(ano_inicio, ano_fim):
                         url_origem=d["url_origem"],
                     )
                     db_session.add(novo)
-                    db_session.commit()
-                except IntegrityError:
-                    db_session.rollback()
                 except Exception as e:
-                    db_session.rollback()
                     print(f"\tErro ao salvar registro: {e}")
 
             try:
