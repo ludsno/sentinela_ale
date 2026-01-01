@@ -4,7 +4,12 @@ on:
   schedule:
     # Dia 10 de todo mês às 03:00 UTC (meia-noite no Brasil)
     - cron: '0 3 10 * *'
-  workflow_dispatch: # permite rodar manualmente
+  workflow_dispatch: 
+      inputs:
+        carga_historica:
+          description: 'Digitar "true" para baixar TUDO (2020-Hoje)'
+          required: false
+          default: 'false'
 
 jobs:
   ingestor:
@@ -26,5 +31,6 @@ jobs:
       - name: Rodar Ingestor Mensal
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CARGA_HISTORICA: ${{ inputs.carga_historica }}
         run: |
           python ingestor_turbo.py

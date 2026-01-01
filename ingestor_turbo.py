@@ -1,12 +1,13 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
 import urllib3
 from io import StringIO
-from sqlalchemy.exc import IntegrityError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from models import Session, Funcionario, init_db
+from datetime import datetime
 
 
 BASE_URL = "https://transparencia.al.al.leg.br"
@@ -206,8 +207,12 @@ def ingestor_turbo(ano_inicio, ano_fim):
 
 if __name__ == "__main__":
     init_db()
-    # Atualiza até o mês atual automaticamente
-    from datetime import datetime
 
     ano_atual = datetime.now().year
-    ingestor_turbo(2020, ano_atual)
+
+    if os.getenv("CARGA_HISTORICA") == "true":
+        print(f"--- MODO CARGA HISTÓRICA ATIVADO: 2020 até {ano_atual} ---")
+        ingestor_turbo(2020, ano_atual)
+    else:
+        print(f"--- MODO MANUTENÇÃO MENSAL: Verificando apenas {ano_atual} ---")
+        ingestor_turbo(ano_atual, ano_atual)
